@@ -6,9 +6,14 @@ import GasUsageStatsBar from './gasusagestatsbar.component';
 import GasPriceStatsBar from './gaspricestatsbar.component';
 import Axios from "axios"; 
 import { Interface } from '@ethersproject/abi';
+import { JsonRpcProvider } from '@ethersproject/providers';
+
 const Chart = require('chart.js');
+const { infura } = require('../config.js');
+
 
 const server = "https://balancer-trading-analysis-svr.herokuapp.com/";
+
 
 const timeFactor = (1000 * 60 * 60 * 24);
 
@@ -16,7 +21,11 @@ function formatNumber(num) {
     const n = Math.abs(num); // Change to positive
     const floored = Math.floor(n)
     const decimal = n - floored
-    return floored.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") + decimal.toString();
+    return (floored + decimal).toLocaleString(
+        undefined, // leave undefined to use the browser's locale,
+                   // or use a string like 'en-US' to override it.
+        { minimumFractionDigits: 2 }
+      ); 
 }
 
 export default class DateBar extends Component {
@@ -29,10 +38,13 @@ export default class DateBar extends Component {
       this.makeStats = this.makeStats.bind(this);
       this.displayTradingVolume = this.displayTradingVolume.bind(this);
       this.makeTradingVolChart = this.makeTradingVolChart.bind(this);
-      this.getSwapData = this.getSwapData.bind(this);
-      this.accessSwapData = this.accessSwapData.bind(this);
       this.makeFailuresChart = this.makeFailuresChart.bind(this);
       this.displayFailures = this.displayFailures.bind(this);
+      this.getTransactionDetails = this.getTransactionDetails.bind(this);
+      this.makeSwapPieChart = this.makeSwapPieChart.bind(this);
+      this.clearCanvases = this.clearCanvases.bind(this);
+      this.calculateSwapPieData = this.calculateSwapPieData.bind(this);
+      this.calculatePoolPieData = this.calculatePoolPieData.bind(this);
 
       this.state = {
         series: [],
@@ -40,25 +52,43 @@ export default class DateBar extends Component {
       }
     }
 
+    async clearCanvases() {
+        const canvasIds = ["gasUsageChart", "gasPriceChart", "tradingVol", "failures", "swaps", "pools"];
+        for(var idx = 0; idx < canvasIds.length; idx++) {
+            var canvas = document.getElementById(canvasIds[idx]);
+            var context = canvas.getContext("2d");
+            context.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        const trCtx = document.getElementById("numTrx");
+        trCtx.innerText = 0;
+    }
+
     async submitTime () {
         var times = document.getElementsByName('datetime');
         if (times.length !== 2) {
             alert("One of your inputs is invalid. Please try again :)");
         } else {
+            await this.clearCanvases();
             const start = new Date(times[0].value);
             const end = new Date(times[1].value);
             const transactions = await this.getTransactions(start, end);
             console.log(transactions[0]);
+
+            const trCtx = document.getElementById("numTrx");
+            trCtx.innerText = formatNumber(transactions.length);
+
             const [usageStats, priceStats] = await this.getOrganizedTransactions(transactions);
             var unit = 'hour';
-
-            await this.makeChart(usageStats[0], 'gasUsageChart', 'Gas Usage', 'line', unit);
-            await this.makeStats(["maxGas", usageStats[1]], ["minGas", usageStats[2]], ["avgGas", usageStats[3]]);
-            await this.makeChart(priceStats[0], 'gasPriceChart', 'Gas Price', 'line', unit);
-            await this.makeStats(["maxGasPr", priceStats[1]], ["minGasPr", priceStats[2]], ["avgGasPr", priceStats[3]]);
+            
+            
+            await this.makeChart(usageStats[0], 'gasUsageChart', 'Gas Usage', 'line', unit, "USAGE");
+            await this.makeStats(["maxGas", usageStats[1]], ["minGas", usageStats[2]], ["avgGas", usageStats[3]], "Gas");
+            await this.makeChart(priceStats[0], 'gasPriceChart', 'Gas Price', 'line', unit, "PRICE");
+            await this.makeStats(["maxGasPr", priceStats[1]], ["minGasPr", priceStats[2]], ["avgGasPr", priceStats[3]], "Wei");
             const j = await this.displayTradingVolume(transactions);
-            await this.getSwapData(transactions);
             await this.displayFailures(transactions);
+            await this.getTransactionDetails(transactions);
         }
     }
 
@@ -150,16 +180,21 @@ export default class DateBar extends Component {
         return [usageStats, priceStats];
     }
 
-    async makeStats(max, min, avg) {
+    async makeStats(max, min, avg, unit) {
         var elem = document.getElementById(max[0]);
-        elem.innerText = max[1];
+        elem.innerText = max[1] + " "+ unit;
         elem = document.getElementById(min[0]);
-        elem.innerText = min[1];
+        elem.innerText = min[1] + " "+ unit;
         elem = document.getElementById(avg[0]);
-        elem.innerText = avg[1];
+        elem.innerText = avg[1] + " "+ unit;
     }
 
-    async makeChart(data, id, label, graphType, unit) {
+    async makeChart(data, id, label, graphType, unit, yAxisType) {
+        var labelString = "Gas Price in (Wei)"
+        if (yAxisType == "USAGE") {
+            labelString = "Amount of Gas Used"
+        }
+         
         var ctx = document.getElementById(id);
         new Chart(ctx, {
             type: graphType,
@@ -170,18 +205,36 @@ export default class DateBar extends Component {
                 }]
             },
             options: {
+                responsive: true,
                 scales: {
                     yAxes: [{
                         ticks: {
                             beginAtZero: true
+                        },
+                        scaleLabel: {
+                            display: true,
+                            labelString: labelString
                         }
                     }],
                     xAxes: [{
                         type: 'time',
                         time: {
-                            unit: unit
+                            unit: unit,
+                            displayFormats: {
+                                hour: "MMM DD"
+                            },
+                            tooltipFormat: "MMM D"
                         },
-                        distribution: 'linear'
+                        distribution: 'linear',
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Date/Time'
+                        },
+                        ticks: {
+                            autoSkip: true,
+                            maxTicksLimit: 20
+                        }
+                        
                     }]
                 }
             }
@@ -235,6 +288,10 @@ export default class DateBar extends Component {
                     yAxes: [{
                         ticks: {
                             beginAtZero: true
+                        },
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Number of Transactions'
                         }
                     }],
                     xAxes: [{
@@ -242,36 +299,174 @@ export default class DateBar extends Component {
                         time: {
                             unit: unit
                         },
-                        distribution: 'linear'
+                        distribution: 'linear',
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Date/Time'
+                        }
                     }]
                 }
             }
         });
     }
 
-    async getSwapData(trx) {
-        //const sample = trx[10];
-        //this.accessSwapData(sample.input)
-        const sampl = trx[11];
-        this.accessSwapData('0xe2b3974600000000000000000000000000000000000000000000000000000000000000a00000000000000000000000005bc25f649fc4e26069ddf4cf4010f9f706c2383100000000000000000000000020c36f062a31865bed8a5b1e512d9a1a20aa333a00000000000000000000000000000000000000000000006e7a77d1171698800000000000000000000000000000000000000000000000006afda6feae64b80fdd000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000d8e9690eff99e21a2de25e0b148ffaf47f47c9720000000000000000000000005bc25f649fc4e26069ddf4cf4010f9f706c2383100000000000000000000000020c36f062a31865bed8a5b1e512d9a1a20aa333a00000000000000000000000000000000000000000000006e7a77d117169880000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
+    async getTransactionDetails(trx) {
+        var swaps = {}
+        var pools = {}
+        for(var idx = 0; idx < trx.length; idx++) {
+            const txTemp = trx[idx];
+            const txHash = txTemp.hash;
+
+            console.log(`getTransactionDetails: ${txHash}`);
+        
+            const provider = new JsonRpcProvider(
+                `https://mainnet.infura.io/v3/${infura}` // If running this example make sure you have a .env file saved in root DIR with INFURA=your_key
+            );
+            
+            //"0x3ca9184e00000000000000000000000000000000000000000000000000000000000000800000000000000000000000002260fac5e5542a773aa44fbcfedf7c193bc2c5990000000000000000000000000000000000000000000000000000000003416de70000000000000000000000000000000000000000000000010194bbba285be00000000000000000000000000000000000000000000000000000000000000000010000000000000000000000001eff8af5d577060ba4ac8a29a13525bb0ee2a3d50000000000000000000000000000000000000000000000000000000003416de70000000000000000000000000000000000000000000000010194bbba285be000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            let tx = await provider.getTransaction(txHash);
+            console.log("The transaction")
+            console.log(tx);      // Have a look at this to get familiar with what it shows
+        
+            const iface = new Interface(proxyArtifact.abi);
+
+            try {
+                const txParsed = iface.parseTransaction({ data: tx.data });
+                var theSwap = txParsed.functionFragment.name;
+                var thePool = txParsed.args.swapSequences[0][0].pool;
+
+                if (theSwap in swaps) {
+                    swaps[theSwap] = swaps[theSwap] + 1;
+                } else {
+                    swaps[theSwap] = 1;
+                }
+
+                if (thePool in pools) {
+                    pools[thePool] = pools[thePool] + 1;
+                } else {
+                    pools[thePool] = 1;
+                }
+
+                console.log(txParsed);
+                console.log(txParsed.args.swapSequences);       // Start looking at parsing the pools used from this. Some will have a single pool others will have multipool so check both work ok.
+                console.log(txParsed.args.swapSequences[0][0]);
+                console.log(theSwap);    // i.e. multihopBatchSwapExactOut
+                console.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+            } catch (error) {
+                console.log("skipped");
+            }
+            
+        }
+
+        const [labels, data] = await this.calculateSwapPieData(swaps);
+        console.log(labels);
+        console.log(data);
+        await this.makeSwapPieChart(labels, data, "swaps");
+        const [labls, dat] = await this.calculatePoolPieData(pools);
+        console.log(labls);
+        console.log(dat);
+        await this.makePoolPieChart(labls, dat, "pools");
 
     }
 
-    accessSwapData(input) {
-        setTimeout(alert('Wait'), 6000);
-        //const proxyArtifact = require("./../abi/ExchangeProxy.json"); // See below
-        console.log('starting proxy');
-        console.log(proxyArtifact);
-        //let ipData = `0x86b2ecc40000000000000000000000000000000000000000000000000000000000000080000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000006b175474e89094c44da98b954eedeac495271d0f00000000000000000000000000000000000000000000000000000000000b8b44000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000d386bb106e6fb44f91e180228edeca24ef73c812000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000ba45a8b5d5575935b8158a88c631e9f9c95a2e500000000000000000000000000000000000000000000000000933cf2568bbd33ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff000000000000000000000000838d504010d83a343db2462256180ca311d29d900000000000000000000000000ba45a8b5d5575935b8158a88c631e9f9c95a2e50000000000000000000000006b175474e89094c44da98b954eedeac495271d0f0000000000000000000000000000000000000000000000000de0b6b3a7640000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff`;
-        //let ipData = "0x4e7ffa0400000000000000000000000000000000000000000000000000000000000000600000000000000000000000002260fac5e5542a773aa44fbcfedf7c193bc2c5990000000000000000000000000000000000000000000000000000000003ef01fc00000000000000000000000000000000000000000000000000000000000000010000000000000000000000001eff8af5d577060ba4ac8a29a13525bb0ee2a3d50000000000000000000000000000000000000000000000013d400cb9d848e0000000000000000000000000000000000000000000000000000000000003ef01fcffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-       
-        const iface = new Interface(proxyArtifact.abi);
-        console.log(input);
-        console.log("zeeee input");
-        let test = iface.parseTransaction({ data: input });
-        console.log(test);
-        console.log(test.args.swapSequences);
-        console.log(test.functionFragment.name);
+    async calculateSwapPieData(swaps) {
+        var labels = [];
+        var data =  [];
+
+        Object.entries(swaps).forEach(([key, value]) => {
+            labels.push(key);
+            data.push(value);
+        });
+        console.log(labels);
+        console.log(data);
+        return [labels, data]
+    }
+
+    async makeSwapPieChart(labels, data, id) {
+
+        const ctx = document.getElementById(id);
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: "Different types of swaps",
+                data: data,
+                backgroundColor: ["#0074D9", "#FF4136", "#2ECC40", "#FF851B", "#7FDBFF", "#B10DC9", 
+                "#FFDC00", "#001f3f", "#39CCCC", "#01FF70", "#85144b", "#F012BE", 
+                "#3D9970", "#111111", "#AAAAAA"]
+              }]
+            },
+            options: {
+              title: {
+                display: true,
+                text: 'The Swap Breakdown'
+              },
+                plugins: {
+                    datalabels: {
+                        formatter: (value, ctx) => {
+                            let sum = 0;
+                            let dataArr = ctx.chart.data.datasets[0].data;
+                            dataArr.map(data => {
+                                sum += data;
+                            });
+                            let percentage = (value*100 / sum).toFixed(2)+"%";
+                            return percentage;
+                        },
+                        color: '#fff',
+                    }
+                }
+            }
+        });
+    }
+
+    async calculatePoolPieData(pools) {
+        var labels = [];
+        var data =  [];
+
+        Object.entries(pools).forEach(([key, value]) => {
+            labels.push(key);
+            data.push(value);
+        });
+        return [labels, data]
+    }
+
+    async makePoolPieChart(labels, data, id) {
+
+        const ctx = document.getElementById(id);
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: "Different types of Pools",
+                data: data,
+                backgroundColor: ["#0074D9", "#FF4136", "#2ECC40", "#FF851B", "#7FDBFF", "#B10DC9", 
+                "#FFDC00", "#001f3f", "#39CCCC", "#01FF70", "#85144b", "#F012BE", 
+                "#3D9970", "#111111", "#AAAAAA"]
+              }]
+            },
+            options: {
+              title: {
+                display: true,
+                text: 'The Pool Breakdown'
+              },
+                plugins: {
+                    datalabels: {
+                        formatter: (value, ctx) => {
+                            let sum = 0;
+                            let dataArr = ctx.chart.data.datasets[0].data;
+                            dataArr.map(data => {
+                                sum += data;
+                            });
+                            let percentage = (value*100 / sum).toFixed(2)+"%";
+                            return percentage;
+                        },
+                        color: '#fff',
+                    }
+                }
+            }
+        });
     }
 
     async displayFailures(trx) {
@@ -367,7 +562,11 @@ export default class DateBar extends Component {
                         ticks: {
                             beginAtZero: true
                         },
-                        stacked: true
+                        stacked: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Number of Failures'
+                        }
                     }],
                     xAxes: [{
                         type: 'time',
@@ -375,7 +574,11 @@ export default class DateBar extends Component {
                             unit: unit
                         },
                         distribution: 'linear',
-                        stacked: true
+                        stacked: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Date/Time'
+                        }
                     }]
                 }
             }
@@ -394,6 +597,10 @@ export default class DateBar extends Component {
                 </button>
             </div>
             <div>
+                <h1>Total Number of Transactions</h1>
+                <p id="numTrx"> ~~~ </p>
+            </div>
+            <div>
                 <canvas id="gasUsageChart" width="400" height="100"></canvas>
                 <GasUsageStatsBar/>
             </div>
@@ -408,6 +615,14 @@ export default class DateBar extends Component {
             
             <div>
                 <canvas id="failures" width="400" height="100"></canvas>
+            </div>
+
+            <div>
+                <canvas id="swaps" width="400" height="100"></canvas>
+            </div>
+
+            <div>
+                <canvas id="pools" width="400" height="100"></canvas>
             </div>
         </div>
     );
