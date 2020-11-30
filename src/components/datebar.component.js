@@ -24,7 +24,7 @@ function formatNumber(num) {
     return (floored + decimal).toLocaleString(
         undefined, // leave undefined to use the browser's locale,
                    // or use a string like 'en-US' to override it.
-        { minimumFractionDigits: 2 }
+        { minimumFractionDigits: 0 }
       ); 
 }
 
@@ -55,9 +55,23 @@ export default class DateBar extends Component {
     async clearCanvases() {
         const canvasIds = ["gasUsageChart", "gasPriceChart", "tradingVol", "failures", "swaps", "pools"];
         for(var idx = 0; idx < canvasIds.length; idx++) {
-            var canvas = document.getElementById(canvasIds[idx]);
-            var context = canvas.getContext("2d");
-            context.clearRect(0, 0, canvas.width, canvas.height);
+            const id = canvasIds[idx];
+            var height = '175';
+
+            var oldCanvas = document.getElementById(id);
+            if(oldCanvas) {
+                oldCanvas.remove();
+            }
+
+            if(id == "pools" || id == "swaps") {
+                height = '300'
+            }
+
+            let canvas = document.createElement('canvas');
+            canvas.setAttribute('id', id);
+            canvas.setAttribute('width','400');
+            canvas.setAttribute('height', height);
+            document.querySelector("#" + id + "-div").appendChild(canvas);
         }
 
         const trCtx = document.getElementById("numTrx");
@@ -73,10 +87,9 @@ export default class DateBar extends Component {
             const start = new Date(times[0].value);
             const end = new Date(times[1].value);
             const transactions = await this.getTransactions(start, end);
-            console.log(transactions[0]);
 
             const trCtx = document.getElementById("numTrx");
-            trCtx.innerText = formatNumber(transactions.length);
+            trCtx.innerText = formatNumber(Math.floor(transactions.length));
 
             const [usageStats, priceStats] = await this.getOrganizedTransactions(transactions);
             var unit = 'hour';
@@ -233,8 +246,8 @@ export default class DateBar extends Component {
                         ticks: {
                             autoSkip: true,
                             maxTicksLimit: 20
-                        }
-                        
+                        },
+                        maxBarThickness: 100,
                     }]
                 }
             }
@@ -243,13 +256,11 @@ export default class DateBar extends Component {
 
     async displayTradingVolume(trx) {
         var tradeVol = {}
-        console.log("Starting trade Count");
         for (var idx = 0; idx < trx.length; idx++) {
             const tx = trx[idx]
 
             let day = new Date(Number(tx.timeStamp) * 1000);
             day = Math.floor(day.getTime()/timeFactor);
-            console.log(day);
             if (day in tradeVol) {
                 tradeVol[day] = tradeVol[day] + 1;
             } else {
@@ -257,7 +268,6 @@ export default class DateBar extends Component {
             }
         }
 
-        console.log("Starting data");
         var data = []
         Object.entries(tradeVol).forEach(([key, value]) => {
             data.push({
@@ -265,8 +275,6 @@ export default class DateBar extends Component {
                 y: value
             })
         });
-
-        console.log(data);
 
         const unit = 'day';
         const label = 'Trading Volume';
@@ -303,7 +311,8 @@ export default class DateBar extends Component {
                         scaleLabel: {
                             display: true,
                             labelString: 'Date/Time'
-                        }
+                        },
+                        maxBarThickness: 100
                     }]
                 }
             }
@@ -313,25 +322,22 @@ export default class DateBar extends Component {
     async getTransactionDetails(trx) {
         var swaps = {}
         var pools = {}
+        const provider = new JsonRpcProvider(
+            `https://mainnet.infura.io/v3/${infura}` // If running this example make sure you have a .env file saved in root DIR with INFURA=your_key
+        );
+        const iface = new Interface(proxyArtifact.abi);
+        var where = 0;
         for(var idx = 0; idx < trx.length; idx++) {
             const txTemp = trx[idx];
             const txHash = txTemp.hash;
-
-            console.log(`getTransactionDetails: ${txHash}`);
-        
-            const provider = new JsonRpcProvider(
-                `https://mainnet.infura.io/v3/${infura}` // If running this example make sure you have a .env file saved in root DIR with INFURA=your_key
-            );
-            
-            //"0x3ca9184e00000000000000000000000000000000000000000000000000000000000000800000000000000000000000002260fac5e5542a773aa44fbcfedf7c193bc2c5990000000000000000000000000000000000000000000000000000000003416de70000000000000000000000000000000000000000000000010194bbba285be00000000000000000000000000000000000000000000000000000000000000000010000000000000000000000001eff8af5d577060ba4ac8a29a13525bb0ee2a3d50000000000000000000000000000000000000000000000000000000003416de70000000000000000000000000000000000000000000000010194bbba285be000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
             let tx = await provider.getTransaction(txHash);
-            console.log("The transaction")
-            console.log(tx);      // Have a look at this to get familiar with what it shows
-        
-            const iface = new Interface(proxyArtifact.abi);
 
             try {
+                //console.log(where);
+                console.time('parseTransaction')
+                //ethers.parseTransaction....
                 const txParsed = iface.parseTransaction({ data: tx.data });
+                console.timeEnd('parseTransaction')
                 var theSwap = txParsed.functionFragment.name;
                 var thePool = txParsed.args.swapSequences[0][0].pool;
 
@@ -346,25 +352,15 @@ export default class DateBar extends Component {
                 } else {
                     pools[thePool] = 1;
                 }
-
-                console.log(txParsed);
-                console.log(txParsed.args.swapSequences);       // Start looking at parsing the pools used from this. Some will have a single pool others will have multipool so check both work ok.
-                console.log(txParsed.args.swapSequences[0][0]);
-                console.log(theSwap);    // i.e. multihopBatchSwapExactOut
-                console.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                where = where + 1;
             } catch (error) {
                 console.log("skipped");
             }
-            
         }
 
         const [labels, data] = await this.calculateSwapPieData(swaps);
-        console.log(labels);
-        console.log(data);
         await this.makeSwapPieChart(labels, data, "swaps");
         const [labls, dat] = await this.calculatePoolPieData(pools);
-        console.log(labls);
-        console.log(dat);
         await this.makePoolPieChart(labls, dat, "pools");
 
     }
@@ -377,8 +373,7 @@ export default class DateBar extends Component {
             labels.push(key);
             data.push(value);
         });
-        console.log(labels);
-        console.log(data);
+        console.log("Is the issue here?")
         return [labels, data]
     }
 
@@ -402,7 +397,7 @@ export default class DateBar extends Component {
                 display: true,
                 text: 'The Swap Breakdown'
               },
-                plugins: {
+              plugins: {
                     datalabels: {
                         formatter: (value, ctx) => {
                             let sum = 0;
@@ -415,7 +410,14 @@ export default class DateBar extends Component {
                         },
                         color: '#fff',
                     }
-                }
+              },
+              animation: {
+                    duration: 0 // general animation time
+              },
+              hover: {
+                        animationDuration: 0 // duration of animations when hovering an item
+              },
+              responsiveAnimationDuration: 0 // animation duration after a resize
             }
         });
     }
@@ -432,6 +434,11 @@ export default class DateBar extends Component {
     }
 
     async makePoolPieChart(labels, data, id) {
+        var bg_color = [];
+        for(var idx = 0; idx < labels.length; idx++) {
+            const randomColor = Math.floor(Math.random()*16777215).toString(16);
+            bg_color.push("#" + randomColor);
+        }
 
         const ctx = document.getElementById(id);
         new Chart(ctx, {
@@ -441,9 +448,7 @@ export default class DateBar extends Component {
               datasets: [{
                 label: "Different types of Pools",
                 data: data,
-                backgroundColor: ["#0074D9", "#FF4136", "#2ECC40", "#FF851B", "#7FDBFF", "#B10DC9", 
-                "#FFDC00", "#001f3f", "#39CCCC", "#01FF70", "#85144b", "#F012BE", 
-                "#3D9970", "#111111", "#AAAAAA"]
+                backgroundColor: bg_color
               }]
             },
             options: {
@@ -497,7 +502,6 @@ export default class DateBar extends Component {
 
             let day = new Date(Number(tx.timeStamp) * 1000);
             day = Math.floor(day.getTime()/timeFactor);
-            console.log(day);
 
             //Check if day is present
             if (!(day in times)) {
@@ -578,7 +582,8 @@ export default class DateBar extends Component {
                         scaleLabel: {
                             display: true,
                             labelString: 'Date/Time'
-                        }
+                        },
+                        maxBarThickness: 100
                     }]
                 }
             }
@@ -601,32 +606,53 @@ export default class DateBar extends Component {
                 <p id="numTrx"> ~~~ </p>
             </div>
             <div>
-                <canvas id="gasUsageChart" width="400" height="100"></canvas>
+                <h3>Gas Usages</h3>
+                <div id="gasUsageChart-div">
+                    <canvas id="gasUsageChart" width="400" height="100"></canvas>
+                </div>
                 <GasUsageStatsBar/>
+                <hr noshade></hr>
             </div>
             <div>
-                <canvas id="gasPriceChart" width="400" height="100"></canvas>
+                <h3>Gas Prices</h3>
+                <div id="gasPriceChart-div">
+                    <canvas id="gasPriceChart" width="400" height="100"></canvas>
+                </div>
                 <GasPriceStatsBar/>
+                <hr noshade></hr>
             </div>
 
             <div>
-                <canvas id="tradingVol" width="400" height="100"></canvas>
+                <h3>Trading Volume</h3>
+                <div id="tradingVol-div">
+                    <canvas id="tradingVol" width="400" height="100"></canvas>
+                </div>
+                <hr noshade></hr>
             </div>
             
             <div>
-                <canvas id="failures" width="400" height="100"></canvas>
+                <h3>Failures</h3>
+                <div id="failures-div">
+                    <canvas id="failures" width="400" height="100"></canvas>
+                </div>
+                <hr noshade></hr>
             </div>
 
             <div>
-                <canvas id="swaps" width="400" height="100"></canvas>
+                <h3>Swap Breakdown</h3>
+                <div id="swaps-div">
+                    <canvas id="swaps" width="400" height="100"></canvas>
+                </div>
+                <hr noshade></hr>
             </div>
 
-            <div>
-                <canvas id="pools" width="400" height="100"></canvas>
+            <div id="pools-div">
+                <h3>Pool Breakdown</h3>
+                <div id="pools-div">
+                    <canvas id="pools" width="400" height="100"></canvas>
+                </div>
             </div>
         </div>
     );
     }
 }
-
-//<EndDate/>

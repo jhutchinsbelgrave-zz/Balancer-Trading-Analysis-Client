@@ -7,8 +7,8 @@ export default class GasUsageStatsBar extends Component {
 
     render() {
     return (   
-        <div style={{"align-items": "center", "text-align": "center", "display": "flex", 
-        "justify-content": "space-around", "max-height": "200px", "max-width": "900px", 
+        <div style={{"alignItems": "center", "textAlign": "center", "display": "flex", 
+        "justifyContent": "space-around", "maxHeight": "200px", "maxWidth": "900px", 
         "border": "3px solid green", "padding": "10px", "align":"center", "margin":"0 auto"}}>
             <div>
                 <div>
