@@ -45,6 +45,7 @@ export default class DateBar extends Component {
       this.clearCanvases = this.clearCanvases.bind(this);
       this.calculateSwapPieData = this.calculateSwapPieData.bind(this);
       this.calculatePoolPieData = this.calculatePoolPieData.bind(this);
+      this.makeSwapBarChart = this.makeSwapBarChart.bind(this);
 
       this.state = {
         series: [],
@@ -53,7 +54,8 @@ export default class DateBar extends Component {
     }
 
     async clearCanvases() {
-        const canvasIds = ["gasUsageChart", "gasPriceChart", "tradingVol", "failures", "swaps", "pools"];
+        const canvasIds = ["gasUsageChart", "gasPriceChart", "tradingVol", 
+        "failures", "swaps-pie", "swaps-bar", "pools"];
         for(var idx = 0; idx < canvasIds.length; idx++) {
             const id = canvasIds[idx];
             var height = '175';
@@ -322,22 +324,18 @@ export default class DateBar extends Component {
     async getTransactionDetails(trx) {
         var swaps = {}
         var pools = {}
+        var swapByDay = {}
         const provider = new JsonRpcProvider(
             `https://mainnet.infura.io/v3/${infura}` // If running this example make sure you have a .env file saved in root DIR with INFURA=your_key
         );
         const iface = new Interface(proxyArtifact.abi);
-        var where = 0;
+        
         for(var idx = 0; idx < trx.length; idx++) {
-            const txTemp = trx[idx];
-            const txHash = txTemp.hash;
-            let tx = await provider.getTransaction(txHash);
+            const tx = trx[idx];
 
             try {
-                //console.log(where);
-                console.time('parseTransaction')
-                //ethers.parseTransaction....
-                const txParsed = iface.parseTransaction({ data: tx.data });
-                console.timeEnd('parseTransaction')
+                const txParsed = iface.parseTransaction({ data: tx.input });
+
                 var theSwap = txParsed.functionFragment.name;
                 var thePool = txParsed.args.swapSequences[0][0].pool;
 
@@ -352,17 +350,147 @@ export default class DateBar extends Component {
                 } else {
                     pools[thePool] = 1;
                 }
-                where = where + 1;
+
+                let day = new Date(Number(tx.timeStamp) * 1000);
+                day = Math.floor(day.getTime()/timeFactor);
+
+                if (!(day in swapByDay)){
+                    swapByDay[day] = {};
+                }
+
+                var theDayDict = swapByDay[day];
+
+                if (theSwap in theDayDict) {
+                    theDayDict[theSwap] = theDayDict[theSwap] + 1;;
+                } else {
+                    theDayDict[theSwap] = 1;
+                }
+
+                swapByDay[day] = theDayDict;
+
+                console.log(swapByDay);
             } catch (error) {
                 console.log("skipped");
             }
         }
 
         const [labels, data] = await this.calculateSwapPieData(swaps);
-        await this.makeSwapPieChart(labels, data, "swaps");
-        const [labls, dat] = await this.calculatePoolPieData(pools);
-        await this.makePoolPieChart(labls, dat, "pools");
+        await this.makeSwapPieChart(labels, data, "swaps-pie");
+        
+        var d = []
+        var theSwapKeys = {}
 
+        Object.entries(swapByDay).forEach(([key, value]) => {
+            d.push(key * timeFactor);
+            Object.entries(value).forEach(([k, v]) => {
+                if (!(k in theSwapKeys)) {
+                    theSwapKeys[k] = []
+                }
+
+                theSwapKeys[k].push(v);
+            })
+        });
+
+        var swapByDayBreakdown = [d]
+        Object.entries(theSwapKeys).forEach(([key, value]) => {
+            swapByDayBreakdown.push([key, value]);
+        });
+
+        this.makeSwapBarChart('swaps-bar', 'bar', swapByDayBreakdown, 'day');
+
+        //const [labls, dat] = await this.calculatePoolPieData(pools);
+        //await this.makePoolPieChart(labls, dat, "pools");
+
+    }
+
+    makeSwapBarChart(id, graphType, data, unit) {
+        var the_data = []
+
+        const colors = ["#0074D9", "#FF4136", "#2ECC40", "#FF851B", "#7FDBFF", "#B10DC9", 
+                "#FFDC00", "#001f3f", "#39CCCC", "#01FF70", "#85144b", "#F012BE", 
+                "#3D9970", "#111111", "#AAAAAA"]
+        for(var idx = 1; idx < data.length; idx++) {
+            const label = data[idx][0];
+            const barData = data[idx][1];
+            //console.log(data);
+            the_data.push({
+                type: 'bar',
+                label: label,
+                data: barData,
+            })
+
+        }
+
+        for(var idx = 0; idx < the_data.length; idx++) {
+            the_data[idx]['backgroundColor'] = colors[idx];
+        }
+
+        console.log(the_data);
+
+        //console.log(the_data);
+
+        var ctx = document.getElementById(id);
+        new Chart(ctx, {
+            type: graphType,
+            data: {
+                labels: data[0],
+                datasets: the_data
+            },
+            options: {
+                scales: {
+                    yAxes: [{
+                        ticks: {
+                            beginAtZero: true
+                        },
+                        stacked: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Number of Swaps'
+                        }
+                    }],
+                    xAxes: [{
+                        type: 'time',
+                        time: {
+                            unit: unit
+                        },
+                        distribution: 'linear',
+                        stacked: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Date/Time'
+                        },
+                        maxBarThickness: 100
+                    }]
+                }
+            }
+        });
+    }
+
+    async displayTradingVolume(trx) {
+        var tradeVol = {}
+        for (var idx = 0; idx < trx.length; idx++) {
+            const tx = trx[idx]
+
+            let day = new Date(Number(tx.timeStamp) * 1000);
+            day = Math.floor(day.getTime()/timeFactor);
+            if (day in tradeVol) {
+                tradeVol[day] = tradeVol[day] + 1;
+            } else {
+                tradeVol[day] = 1;
+            }
+        }
+
+        var data = []
+        Object.entries(tradeVol).forEach(([key, value]) => {
+            data.push({
+                x: key * timeFactor, 
+                y: value
+            })
+        });
+
+        const unit = 'day';
+        const label = 'Trading Volume';
+        await this.makeTradingVolChart('tradingVol', 'bar', label, data, unit)
     }
 
     async calculateSwapPieData(swaps) {
@@ -398,26 +526,17 @@ export default class DateBar extends Component {
                 text: 'The Swap Breakdown'
               },
               plugins: {
-                    datalabels: {
-                        formatter: (value, ctx) => {
-                            let sum = 0;
-                            let dataArr = ctx.chart.data.datasets[0].data;
-                            dataArr.map(data => {
-                                sum += data;
-                            });
-                            let percentage = (value*100 / sum).toFixed(2)+"%";
-                            return percentage;
-                        },
-                        color: '#fff',
-                    }
-              },
-              animation: {
-                    duration: 0 // general animation time
-              },
-              hover: {
-                        animationDuration: 0 // duration of animations when hovering an item
-              },
-              responsiveAnimationDuration: 0 // animation duration after a resize
+                pieceLabel: {
+                    mode: 'percentage',
+                    //fontColor: ['green', 'white', 'red'],
+                    precision: 2,
+                    position: "outside",
+                    arc: true,
+                    showActualPercentages: true,
+                }
+            },
+            responsive: true,
+            maintainAspectRatio: true,
             }
         });
     }
@@ -455,21 +574,7 @@ export default class DateBar extends Component {
               title: {
                 display: true,
                 text: 'The Pool Breakdown'
-              },
-                plugins: {
-                    datalabels: {
-                        formatter: (value, ctx) => {
-                            let sum = 0;
-                            let dataArr = ctx.chart.data.datasets[0].data;
-                            dataArr.map(data => {
-                                sum += data;
-                            });
-                            let percentage = (value*100 / sum).toFixed(2)+"%";
-                            return percentage;
-                        },
-                        color: '#fff',
-                    }
-                }
+              }
             }
         });
     }
@@ -640,8 +745,11 @@ export default class DateBar extends Component {
 
             <div>
                 <h3>Swap Breakdown</h3>
-                <div id="swaps-div">
-                    <canvas id="swaps" width="400" height="100"></canvas>
+                <div id="swaps-pie-div">
+                    <canvas id="swaps-pie" width="400" height="100"></canvas>
+                </div>
+                <div id="swaps-bar-div">
+                    <canvas id="swaps-bar" width="400" height="100"></canvas>
                 </div>
                 <hr noshade></hr>
             </div>

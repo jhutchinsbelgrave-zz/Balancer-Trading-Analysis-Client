@@ -12,6 +12,7 @@
     "apexcharts": "^3.22.1",
     "axios": "^0.21.0",
     "chart.js": "^2.9.4",
+    "chartjs-plugin-labels": "^1.1.0",
     "chokidar": "^3.4.3",
     "dotenv": "^8.2.0",
     "eslint-webpack-plugin": "^2.4.0",
