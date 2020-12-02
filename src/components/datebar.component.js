@@ -73,9 +73,11 @@ export default class DateBar extends Component {
             canvas.setAttribute('id', id);
             canvas.setAttribute('width','400');
             canvas.setAttribute('height', height);
+
             document.querySelector("#" + id + "-div").appendChild(canvas);
         }
-
+        const dataDisplay = document.getElementById("data-display")
+        dataDisplay.hidden = true;
         const trCtx = document.getElementById("numTrx");
         trCtx.innerText = 0;
     }
@@ -86,6 +88,10 @@ export default class DateBar extends Component {
             alert("One of your inputs is invalid. Please try again :)");
         } else {
             await this.clearCanvases();
+
+            const dataDisplay = document.getElementById("data-display")
+            dataDisplay.hidden = false;
+
             const start = new Date(times[0].value);
             const end = new Date(times[1].value);
             const transactions = await this.getTransactions(start, end);
@@ -97,9 +103,9 @@ export default class DateBar extends Component {
             var unit = 'hour';
             
             
-            await this.makeChart(usageStats[0], 'gasUsageChart', 'Gas Usage', 'line', unit, "USAGE");
+            await this.makeChart(usageStats[0], 'gasUsageChart', 'Gas Usage', 'scatter', unit, "USAGE");
             await this.makeStats(["maxGas", usageStats[1]], ["minGas", usageStats[2]], ["avgGas", usageStats[3]], "Gas");
-            await this.makeChart(priceStats[0], 'gasPriceChart', 'Gas Price', 'line', unit, "PRICE");
+            await this.makeChart(priceStats[0], 'gasPriceChart', 'Gas Price', 'scatter', unit, "PRICE");
             await this.makeStats(["maxGasPr", priceStats[1]], ["minGasPr", priceStats[2]], ["avgGasPr", priceStats[3]], "Wei");
             const j = await this.displayTradingVolume(transactions);
             await this.displayFailures(transactions);
@@ -367,8 +373,6 @@ export default class DateBar extends Component {
                 }
 
                 swapByDay[day] = theDayDict;
-
-                console.log(swapByDay);
             } catch (error) {
                 console.log("skipped");
             }
@@ -424,10 +428,6 @@ export default class DateBar extends Component {
         for(var idx = 0; idx < the_data.length; idx++) {
             the_data[idx]['backgroundColor'] = colors[idx];
         }
-
-        console.log(the_data);
-
-        //console.log(the_data);
 
         var ctx = document.getElementById(id);
         new Chart(ctx, {
@@ -501,7 +501,6 @@ export default class DateBar extends Component {
             labels.push(key);
             data.push(value);
         });
-        console.log("Is the issue here?")
         return [labels, data]
     }
 
@@ -698,6 +697,13 @@ export default class DateBar extends Component {
     render() {
     return (
         <div>
+            <div id="welcome-message">
+                <h4>
+                    Welcome to the Balancer Labs Analytics Dashboard!
+                    <br></br>
+                    Please be mindful and patient when querying for large date ranges (3+ weeks)
+                </h4>
+            </div>
             <div className = "bar" style={{"display": "flex", 
                 "justify-content": "space-around", "align":"center", "margin" : "0 auto"}}>
                 <StartDate/>
@@ -706,58 +712,61 @@ export default class DateBar extends Component {
                     Submit
                 </button>
             </div>
-            <div>
-                <h1>Total Number of Transactions</h1>
-                <p id="numTrx"> ~~~ </p>
-            </div>
-            <div>
-                <h3>Gas Usages</h3>
-                <div id="gasUsageChart-div">
-                    <canvas id="gasUsageChart" width="400" height="100"></canvas>
+            <div id="data-display" hidden>
+                <div style={{"display": "flex", 
+                "justifyContent": "space-around", "alignItems":"center", "margin" : "0 auto"}}>
+                    <h1>Total Number of Transactions:     </h1>
+                    <h1 id="numTrx"> <b> ~~~ </b> </h1>
                 </div>
-                <GasUsageStatsBar/>
-                <hr noshade></hr>
-            </div>
-            <div>
-                <h3>Gas Prices</h3>
-                <div id="gasPriceChart-div">
-                    <canvas id="gasPriceChart" width="400" height="100"></canvas>
+                <div>
+                    <h3>Gas Usages</h3>
+                    <div id="gasUsageChart-div">
+                        <canvas id="gasUsageChart" width="400" height="100"></canvas>
+                    </div>
+                    <GasUsageStatsBar/>
+                    <hr noshade></hr>
                 </div>
-                <GasPriceStatsBar/>
-                <hr noshade></hr>
-            </div>
+                <div>
+                    <h3>Gas Prices</h3>
+                    <div id="gasPriceChart-div">
+                        <canvas id="gasPriceChart" width="400" height="100"></canvas>
+                    </div>
+                    <GasPriceStatsBar/>
+                    <hr noshade></hr>
+                </div>
 
-            <div>
-                <h3>Trading Volume</h3>
-                <div id="tradingVol-div">
-                    <canvas id="tradingVol" width="400" height="100"></canvas>
+                <div>
+                    <h3>Number of Swaps Per Day</h3>
+                    <div id="tradingVol-div">
+                        <canvas id="tradingVol" width="400" height="100"></canvas>
+                    </div>
+                    <hr noshade></hr>
                 </div>
-                <hr noshade></hr>
-            </div>
-            
-            <div>
-                <h3>Failures</h3>
-                <div id="failures-div">
-                    <canvas id="failures" width="400" height="100"></canvas>
+                
+                <div>
+                    <h3>Failures</h3>
+                    <div id="failures-div">
+                        <canvas id="failures" width="400" height="100"></canvas>
+                    </div>
+                    <hr noshade></hr>
                 </div>
-                <hr noshade></hr>
-            </div>
 
-            <div>
-                <h3>Swap Breakdown</h3>
-                <div id="swaps-pie-div">
-                    <canvas id="swaps-pie" width="400" height="100"></canvas>
+                <div>
+                    <h3>Swap Breakdown</h3>
+                    <div id="swaps-pie-div">
+                        <canvas id="swaps-pie" width="400" height="100"></canvas>
+                    </div>
+                    <div id="swaps-bar-div">
+                        <canvas id="swaps-bar" width="400" height="100"></canvas>
+                    </div>
+                    <hr noshade hidden></hr>
                 </div>
-                <div id="swaps-bar-div">
-                    <canvas id="swaps-bar" width="400" height="100"></canvas>
-                </div>
-                <hr noshade></hr>
-            </div>
 
-            <div id="pools-div">
-                <h3>Pool Breakdown</h3>
-                <div id="pools-div">
-                    <canvas id="pools" width="400" height="100"></canvas>
+                <div id="pools-section-div" hidden>
+                    <h3>Pool Breakdown</h3>
+                    <div id="pools-div">
+                        <canvas id="pools" width="400" height="100"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
